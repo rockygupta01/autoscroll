@@ -103,6 +103,223 @@
   }
 
   // ============================================================
+  // FLOATING OVERLAY (visible on the page while scrolling)
+  // ============================================================
+
+  /** Reference to the overlay DOM element */
+  let overlayEl = null;
+
+  /**
+   * Creates the floating status overlay on the page
+   */
+  function createOverlay() {
+    // Remove any existing overlay
+    removeOverlay();
+
+    overlayEl = document.createElement('div');
+    overlayEl.id = '__ce-overlay';
+    overlayEl.innerHTML = `
+      <div id="__ce-header">
+        <span id="__ce-title">⚡ Contact Extractor</span>
+        <span id="__ce-status">Starting...</span>
+      </div>
+      <div id="__ce-progress-wrap">
+        <div id="__ce-progress-bar"></div>
+      </div>
+      <div id="__ce-stats">
+        <div class="__ce-stat"><span id="__ce-scroll-pct">0%</span><span class="__ce-stat-label">Scroll</span></div>
+        <div class="__ce-stat"><span id="__ce-contacts">0</span><span class="__ce-stat-label">Contacts</span></div>
+        <div class="__ce-stat"><span id="__ce-emails">0</span><span class="__ce-stat-label">Emails</span></div>
+        <div class="__ce-stat"><span id="__ce-phones">0</span><span class="__ce-stat-label">Phones</span></div>
+      </div>
+    `;
+
+    // Inject styles using a <style> element (isolated naming to avoid conflicts)
+    const style = document.createElement('style');
+    style.id = '__ce-overlay-style';
+    style.textContent = `
+      #__ce-overlay {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 260px;
+        background: linear-gradient(135deg, rgba(10,10,26,0.95), rgba(18,18,42,0.95));
+        border: 1px solid rgba(0,212,255,0.25);
+        border-radius: 14px;
+        padding: 14px 16px;
+        z-index: 2147483647;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        color: #e2e8f0;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(0,212,255,0.1);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+        animation: __ce-slideIn 0.4s cubic-bezier(0.4,0,0.2,1);
+      }
+      @keyframes __ce-slideIn {
+        from { opacity: 0; transform: translateY(20px) scale(0.95); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes __ce-slideOut {
+        from { opacity: 1; transform: translateY(0) scale(1); }
+        to   { opacity: 0; transform: translateY(20px) scale(0.9); }
+      }
+      #__ce-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      #__ce-title {
+        font-size: 12px;
+        font-weight: 700;
+        background: linear-gradient(135deg, #00d4ff, #7c3aed);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      #__ce-status {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 10px;
+        background: rgba(16,185,129,0.2);
+        color: #34d399;
+      }
+      #__ce-status.paused {
+        background: rgba(245,158,11,0.2);
+        color: #fbbf24;
+      }
+      #__ce-status.completed {
+        background: rgba(0,212,255,0.2);
+        color: #00d4ff;
+      }
+      #__ce-status.stopped {
+        background: rgba(239,68,68,0.2);
+        color: #f87171;
+      }
+      #__ce-progress-wrap {
+        height: 4px;
+        background: rgba(255,255,255,0.08);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+      #__ce-progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #00d4ff, #7c3aed, #10b981);
+        border-radius: 2px;
+        transition: width 0.5s ease;
+      }
+      #__ce-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        text-align: center;
+      }
+      .__ce-stat {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .__ce-stat span:first-child {
+        font-size: 16px;
+        font-weight: 700;
+        color: #00d4ff;
+      }
+      .__ce-stat:nth-child(2) span:first-child { color: #a78bfa; }
+      .__ce-stat:nth-child(3) span:first-child { color: #34d399; }
+      .__ce-stat:nth-child(4) span:first-child { color: #fbbf24; }
+      .__ce-stat-label {
+        font-size: 9px;
+        font-weight: 500;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+    `;
+
+    document.documentElement.appendChild(style);
+    document.documentElement.appendChild(overlayEl);
+  }
+
+  /**
+   * Updates the floating overlay with current stats
+   */
+  function updateOverlay(state, percentage, totalContacts, emailCount, phoneCount) {
+    if (!overlayEl) return;
+
+    // Progress bar
+    const bar = overlayEl.querySelector('#__ce-progress-bar');
+    if (bar) bar.style.width = percentage + '%';
+
+    // Scroll percentage
+    const pct = overlayEl.querySelector('#__ce-scroll-pct');
+    if (pct) pct.textContent = percentage + '%';
+
+    // Contacts
+    const contacts = overlayEl.querySelector('#__ce-contacts');
+    if (contacts) contacts.textContent = totalContacts;
+
+    // Emails
+    const emails = overlayEl.querySelector('#__ce-emails');
+    if (emails) emails.textContent = emailCount;
+
+    // Phones
+    const phones = overlayEl.querySelector('#__ce-phones');
+    if (phones) phones.textContent = phoneCount;
+
+    // Status badge
+    const status = overlayEl.querySelector('#__ce-status');
+    if (status) {
+      status.className = '';
+      switch (state) {
+        case 'scrolling':
+          status.textContent = '● Scrolling';
+          break;
+        case 'paused':
+          status.textContent = '❚❚ Paused';
+          status.classList.add('paused');
+          break;
+        case 'completed':
+          status.textContent = '✓ Done';
+          status.classList.add('completed');
+          break;
+        case 'stopped':
+          status.textContent = '■ Stopped';
+          status.classList.add('stopped');
+          break;
+        default:
+          status.textContent = state;
+      }
+    }
+  }
+
+  /**
+   * Removes the overlay from the page with a fade-out animation
+   */
+  function removeOverlay() {
+    const existing = document.getElementById('__ce-overlay');
+    if (existing) {
+      existing.style.animation = '__ce-slideOut 0.3s ease forwards';
+      setTimeout(() => existing.remove(), 300);
+    }
+    const style = document.getElementById('__ce-overlay-style');
+    if (style) style.remove();
+    overlayEl = null;
+  }
+
+  /**
+   * Helper: count emails and phones in extracted contacts
+   */
+  function getOverlayCounts() {
+    const emailCount = extractedContacts.filter(c => c.email).length;
+    const phoneCount = extractedContacts.filter(c => c.phone).length;
+    return { emailCount, phoneCount };
+  }
+
+  // ============================================================
   // CONTACT EXTRACTION
   // ============================================================
 
@@ -220,6 +437,10 @@
     lastScrollY = -1;
     unchangedScrollCount = 0;
 
+    // Create the floating overlay so user can see progress on the page
+    createOverlay();
+    updateOverlay('scrolling', 0, 0, 0, 0);
+
     // Scroll to top first
     window.scrollTo({ top: 0, behavior: 'smooth' });
     await sleep(500);
@@ -233,12 +454,15 @@
         contacts: initialContacts,
         totalCount: extractedContacts.length,
       });
+      const { emailCount, phoneCount } = getOverlayCounts();
+      updateOverlay('scrolling', 0, extractedContacts.length, emailCount, phoneCount);
     }
 
     // Scroll loop
     while (scrollState === 'scrolling') {
       // Check if paused — wait until resumed or stopped
       while (scrollState === 'paused') {
+        updateOverlay('paused', getScrollPercentage(), extractedContacts.length, getOverlayCounts().emailCount, getOverlayCounts().phoneCount);
         await sleep(200);
       }
 
@@ -275,10 +499,15 @@
       }
 
       // Report scroll progress
+      const pct = getScrollPercentage();
       sendMessage({
         type: 'SCROLL_PROGRESS',
-        percentage: getScrollPercentage(),
+        percentage: pct,
       });
+
+      // Update floating overlay
+      const { emailCount, phoneCount } = getOverlayCounts();
+      updateOverlay('scrolling', pct, extractedContacts.length, emailCount, phoneCount);
 
       // Extract contacts from newly loaded content
       const newContacts = scanForContacts();
@@ -303,6 +532,11 @@
     // Scroll complete
     const finalState = scrollState === 'stopped' ? 'stopped' : 'completed';
     scrollState = 'idle';
+
+    // Update overlay to show final state, then auto-remove after 5 seconds
+    const { emailCount, phoneCount } = getOverlayCounts();
+    updateOverlay(finalState, getScrollPercentage(), extractedContacts.length, emailCount, phoneCount);
+    setTimeout(() => removeOverlay(), 5000);
 
     sendMessage({
       type: 'SCROLL_COMPLETE',
