@@ -27,6 +27,15 @@
   /** Set of emails already found — used for deduplication */
   const seenEmails = new Set();
 
+  /** Set of phone numbers already assigned to contacts — prevents re-assignment */
+  const seenPhones = new Set();
+
+  /** Set of LinkedIn URLs already assigned to contacts */
+  const seenLinkedIn = new Set();
+
+  /** Set of website URLs already assigned to contacts */
+  const seenWebsites = new Set();
+
   /** All contacts extracted during this session */
   const extractedContacts = [];
 
@@ -109,12 +118,18 @@
 
     // Extract all contact data types
     const emails = extractEmails(pageText);
-    const phones = settings.enablePhoneExtraction ? extractPhones(pageText) : [];
-    const linkedInUrls = extractLinkedInUrls(pageHtml);
-    const websiteUrls = extractWebsiteUrls(pageHtml);
+    const rawPhones = settings.enablePhoneExtraction ? extractPhones(pageText) : [];
+    const rawLinkedInUrls = extractLinkedInUrls(pageHtml);
+    const rawWebsiteUrls = extractWebsiteUrls(pageHtml);
     const companyName = extractCompanyName(document);
     const personNames = extractPersonNames(document, emails);
     const sourceUrl = window.location.href;
+
+    // Filter out already-seen phones, LinkedIn URLs, and websites
+    // (the full page is re-scanned each scroll step, so we must dedup these too)
+    const phones = rawPhones.filter(p => !seenPhones.has(p.replace(/\D/g, '')));
+    const linkedInUrls = rawLinkedInUrls.filter(u => !seenLinkedIn.has(u.toLowerCase()));
+    const websiteUrls = rawWebsiteUrls.filter(u => !seenWebsites.has(u.toLowerCase()));
 
     // Build contacts — email is the primary key
     for (const email of emails) {
@@ -136,19 +151,25 @@
         timestamp: Date.now(),
       };
 
-      // Try to associate a phone number
+      // Try to associate a phone number (mark as seen to prevent re-extraction)
       if (phones.length > 0) {
-        contact.phone = phones.shift(); // Associate and remove from pool
+        const phone = phones.shift();
+        contact.phone = phone;
+        seenPhones.add(phone.replace(/\D/g, ''));
       }
 
       // Try to associate a website
       if (websiteUrls.length > 0) {
-        contact.website = websiteUrls.shift(); // Associate and remove from pool
+        const website = websiteUrls.shift();
+        contact.website = website;
+        seenWebsites.add(website.toLowerCase());
       }
 
       // Try to associate a LinkedIn URL
       if (linkedInUrls.length > 0) {
-        contact.linkedIn = linkedInUrls.shift(); // Associate and remove from pool
+        const linkedIn = linkedInUrls.shift();
+        contact.linkedIn = linkedIn;
+        seenLinkedIn.add(linkedIn.toLowerCase());
       }
 
       newContacts.push(contact);
@@ -158,18 +179,25 @@
     // These get a generated key based on phone number
     if (settings.enablePhoneExtraction) {
       for (const phone of phones) {
-        const phoneKey = `phone:${phone.replace(/\D/g, '')}`;
-        if (seenEmails.has(phoneKey)) continue;
+        const phoneDigits = phone.replace(/\D/g, '');
+        const phoneKey = `phone:${phoneDigits}`;
+        if (seenEmails.has(phoneKey) || seenPhones.has(phoneDigits)) continue;
 
         seenEmails.add(phoneKey);
+        seenPhones.add(phoneDigits);
+
+        const website = websiteUrls.length > 0 ? websiteUrls.shift() : '';
+        const linkedIn = linkedInUrls.length > 0 ? linkedInUrls.shift() : '';
+        if (website) seenWebsites.add(website.toLowerCase());
+        if (linkedIn) seenLinkedIn.add(linkedIn.toLowerCase());
 
         newContacts.push({
           companyName: companyName || '',
           personName: '',
           email: '',
           phone: phone,
-          website: websiteUrls.length > 0 ? websiteUrls.shift() : '',
-          linkedIn: linkedInUrls.length > 0 ? linkedInUrls.shift() : '',
+          website: website,
+          linkedIn: linkedIn,
           sourceUrl: sourceUrl,
           timestamp: Date.now(),
         });
@@ -298,6 +326,9 @@
 
         // Reset state for new session
         seenEmails.clear();
+        seenPhones.clear();
+        seenLinkedIn.clear();
+        seenWebsites.clear();
         extractedContacts.length = 0;
         scrollState = 'idle';
 

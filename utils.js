@@ -99,27 +99,63 @@ function isValidEmail(email) {
 }
 
 /**
- * Validates a phone number — ensures it has the right digit count
+ * Validates a phone number — strict filtering to reduce false positives
  * @param {string} phone - The phone string to validate
  * @returns {boolean} True if the phone number appears valid
  */
 function isValidPhone(phone) {
   if (!phone) return false;
 
+  const trimmed = phone.trim();
+
   // Count digits only
-  const digits = phone.replace(/\D/g, '');
+  const digits = trimmed.replace(/\D/g, '');
 
   if (digits.length < PHONE_MIN_DIGITS || digits.length > PHONE_MAX_DIGITS) {
     return false;
   }
 
   // Reject if it looks like a year (4 digits standalone)
-  if (digits.length === 4 && /^\d{4}$/.test(phone.trim())) {
+  if (digits.length === 4 && /^\d{4}$/.test(trimmed)) {
     return false;
   }
 
-  // Reject strings that are just sequences of the same digit
+  // Reject strings that are just sequences of the same digit (e.g., 0000000)
   if (/^(\d)\1+$/.test(digits)) {
+    return false;
+  }
+
+  // Reject likely pincodes / zip codes / ID numbers:
+  // - Exactly 5 or 6 digits without any separators or prefix
+  if ((digits.length === 5 || digits.length === 6) && /^\d+$/.test(trimmed)) {
+    return false;
+  }
+
+  // For numbers WITHOUT a + prefix, require at least 10 digits
+  if (!trimmed.startsWith('+') && digits.length < 10) {
+    return false;
+  }
+
+  // Indian phone numbers: 10-digit numbers must start with 6, 7, 8, or 9
+  if (digits.length === 10 && !/^[6-9]/.test(digits)) {
+    return false;
+  }
+
+  // Reject numbers that look like "XXXXX-XXXXX" patterns typical of pincodes/IDs
+  // (e.g., "78149-00856") — real phones rarely have a 5-5 split
+  if (/^\d{5}-\d{5}$/.test(trimmed) && !/^[6-9]/.test(digits)) {
+    return false;
+  }
+
+  // Reject sequential digits (12345678, 87654321)
+  let isSequential = true;
+  for (let i = 1; i < digits.length; i++) {
+    if (Math.abs(parseInt(digits[i]) - parseInt(digits[i - 1])) !== 1) {
+      isSequential = false;
+      break;
+    }
+  }
+  if (isSequential && digits.length >= 7) {
     return false;
   }
 
