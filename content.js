@@ -429,111 +429,27 @@
   // ============================================================
 
   /**
-   * Main scroll loop — scrolls the page and extracts contacts
-   * Runs until bottom is reached, max attempts exceeded, or stopped
+   * Helper to perform a scan and report findings
    */
-  async function startScrolling() {
-    scrollState = 'scrolling';
-    lastScrollY = -1;
-    unchangedScrollCount = 0;
-
-    // Create the floating overlay so user can see progress on the page
-    createOverlay();
-    updateOverlay('scrolling', 0, 0, 0, 0);
-
-    // Scroll to top first
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    await sleep(500);
-
-    // Initial extraction at top of page
-    const initialContacts = scanForContacts();
-    if (initialContacts.length > 0) {
-      extractedContacts.push(...initialContacts);
+  function performScan() {
+    const newContacts = scanForContacts();
+    if (newContacts.length > 0) {
+      extractedContacts.push(...newContacts);
       sendMessage({
         type: 'CONTACTS_FOUND',
-        contacts: initialContacts,
+        contacts: newContacts,
         totalCount: extractedContacts.length,
       });
-      const { emailCount, phoneCount } = getOverlayCounts();
-      updateOverlay('scrolling', 0, extractedContacts.length, emailCount, phoneCount);
     }
+  }
 
-    // Scroll loop
-    while (scrollState === 'scrolling') {
-      // Check if paused — wait until resumed or stopped
-      while (scrollState === 'paused') {
-        updateOverlay('paused', getScrollPercentage(), extractedContacts.length, getOverlayCounts().emailCount, getOverlayCounts().phoneCount);
-        await sleep(200);
-      }
-
-      if (scrollState === 'stopped') break;
-
-      // Record position before scroll
-      const beforeY = window.scrollY;
-
-      // Smooth scroll down
-      window.scrollBy({
-        top: settings.scrollSpeed,
-        behavior: 'smooth',
-      });
-
-      // Wait for scroll animation + content to load
-      await sleep(settings.pauseDuration);
-
-      if (scrollState === 'stopped') break;
-
-      // Check if scroll position changed
-      const afterY = window.scrollY;
-
-      if (Math.abs(afterY - beforeY) < 2) {
-        unchangedScrollCount++;
-        if (unchangedScrollCount >= settings.maxScrollAttempts) {
-          // Reached the bottom — no more scrolling possible
-          break;
-        }
-        // Wait a bit longer for potential lazy loading
-        await sleep(1000);
-        continue;
-      } else {
-        unchangedScrollCount = 0;
-      }
-
-      // Report scroll progress
-      const pct = getScrollPercentage();
-      sendMessage({
-        type: 'SCROLL_PROGRESS',
-        percentage: pct,
-      });
-
-      // Update floating overlay
-      const { emailCount, phoneCount } = getOverlayCounts();
-      updateOverlay('scrolling', pct, extractedContacts.length, emailCount, phoneCount);
-
-      // Extract contacts from newly loaded content
-      const newContacts = scanForContacts();
-      if (newContacts.length > 0) {
-        extractedContacts.push(...newContacts);
-        sendMessage({
-          type: 'CONTACTS_FOUND',
-          contacts: newContacts,
-          totalCount: extractedContacts.length,
-        });
-      }
-
-      // Check if at bottom
-      if (isAtBottom()) {
-        unchangedScrollCount++;
-        if (unchangedScrollCount >= settings.maxScrollAttempts) {
-          break;
-        }
-      }
-    }
-
-    // Scroll complete
+  /**
+   * Helper to finish the scrolling session
+   */
+  function finishScrolling(resolve) {
     const finalState = scrollState === 'stopped' ? 'stopped' : 'completed';
     scrollState = 'idle';
 
-    // Update overlay to show final state, then auto-remove after 5 seconds
     const { emailCount, phoneCount } = getOverlayCounts();
     updateOverlay(finalState, getScrollPercentage(), extractedContacts.length, emailCount, phoneCount);
     setTimeout(() => removeOverlay(), 5000);
@@ -543,6 +459,109 @@
       finalState: finalState,
       totalContacts: extractedContacts.length,
       percentage: getScrollPercentage(),
+    });
+    
+    if (resolve) resolve();
+  }
+
+  /**
+   * Main scroll loop — scrolls the page and extracts contacts
+   * Continuous smooth scrolling via requestAnimationFrame
+   */
+  async function startScrolling() {
+    scrollState = 'scrolling';
+    lastScrollY = -1;
+    unchangedScrollCount = 0;
+
+    createOverlay();
+    updateOverlay('scrolling', 0, 0, 0, 0);
+
+    // Scroll to top first
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    await sleep(500);
+
+    // Initial extraction at top of page
+    performScan();
+    
+    const { emailCount, phoneCount } = getOverlayCounts();
+    updateOverlay('scrolling', 0, extractedContacts.length, emailCount, phoneCount);
+
+    // Calculate pixels to scroll per frame based on settings.scrollSpeed
+    // (Assuming scrollSpeed was originally "pixels per step", we map it to a comfortable frame speed)
+    const pixelsPerFrame = Math.max(1, Math.round(settings.scrollSpeed / 30));
+    let lastScanY = window.scrollY;
+
+    return new Promise((resolve) => {
+      const scrollLoop = () => {
+        if (scrollState === 'stopped') {
+          finishScrolling(resolve);
+          return;
+        }
+
+        // Check if paused
+        if (scrollState === 'paused') {
+          updateOverlay('paused', getScrollPercentage(), extractedContacts.length, getOverlayCounts().emailCount, getOverlayCounts().phoneCount);
+          setTimeout(() => requestAnimationFrame(scrollLoop), 200);
+          return;
+        }
+
+        const beforeY = window.scrollY;
+        
+        // Smoothly scroll down
+        window.scrollBy(0, pixelsPerFrame);
+        
+        const afterY = window.scrollY;
+
+        // Perform periodic scans every ~500 pixels of scrolling
+        if (afterY - lastScanY > 500) {
+          performScan();
+          lastScanY = afterY;
+          
+          const pct = getScrollPercentage();
+          sendMessage({ type: 'SCROLL_PROGRESS', percentage: pct });
+          const { emailCount: ec, phoneCount: pc } = getOverlayCounts();
+          updateOverlay('scrolling', pct, extractedContacts.length, ec, pc);
+        }
+
+        // Check if we hit the bottom of the page
+        if (Math.abs(afterY - beforeY) < 1 || isAtBottom()) {
+          // We reached the bottom. Scan once more here.
+          performScan();
+          lastScanY = afterY;
+          
+          // Wait for lazy loaded content (infinite scroll)
+          setTimeout(() => {
+            if (scrollState === 'stopped') {
+              finishScrolling(resolve);
+              return;
+            }
+            
+            // Did new content load?
+            if (isAtBottom()) {
+              unchangedScrollCount++;
+              if (unchangedScrollCount >= settings.maxScrollAttempts) {
+                // Definitely no more content
+                finishScrolling(resolve);
+                return;
+              }
+            } else {
+              // New content loaded! Reset counter
+              unchangedScrollCount = 0;
+            }
+            
+            // Resume continuous scrolling
+            requestAnimationFrame(scrollLoop);
+          }, settings.pauseDuration);
+          
+        } else {
+          // Keep scrolling
+          unchangedScrollCount = 0;
+          requestAnimationFrame(scrollLoop);
+        }
+      };
+
+      // Start the loop
+      requestAnimationFrame(scrollLoop);
     });
   }
 
