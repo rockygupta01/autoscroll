@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Contact Extractor",
+  "version": "1.0.0",
+  "description": "Automatically scroll webpages and extract contact information including emails, phone numbers, company names, and LinkedIn profiles.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "tabs"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Contact Extractor"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
