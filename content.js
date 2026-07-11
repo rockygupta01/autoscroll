@@ -138,17 +138,17 @@
 
       // Try to associate a phone number
       if (phones.length > 0) {
-        contact.phone = phones[0]; // Associate first found phone
+        contact.phone = phones.shift(); // Associate and remove from pool
       }
 
       // Try to associate a website
       if (websiteUrls.length > 0) {
-        contact.website = websiteUrls[0];
+        contact.website = websiteUrls.shift(); // Associate and remove from pool
       }
 
       // Try to associate a LinkedIn URL
       if (linkedInUrls.length > 0) {
-        contact.linkedIn = linkedInUrls[0];
+        contact.linkedIn = linkedInUrls.shift(); // Associate and remove from pool
       }
 
       newContacts.push(contact);
@@ -168,8 +168,8 @@
           personName: '',
           email: '',
           phone: phone,
-          website: websiteUrls.length > 0 ? websiteUrls[0] : '',
-          linkedIn: linkedInUrls.length > 0 ? linkedInUrls[0] : '',
+          website: websiteUrls.length > 0 ? websiteUrls.shift() : '',
+          linkedIn: linkedInUrls.length > 0 ? linkedInUrls.shift() : '',
           sourceUrl: sourceUrl,
           timestamp: Date.now(),
         });
